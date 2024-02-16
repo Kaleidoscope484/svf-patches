@@ -1,200 +1,200 @@
 diff --git a/include/Graphs/PAG.h b/include/Graphs/PAG.h
-index 7c859a8..4b0d66b 100644
+index 4b0d66b..7c859a8 100644
 --- a/include/Graphs/PAG.h
 +++ b/include/Graphs/PAG.h
-@@ -114,11 +114,6 @@ private:
+@@ -114,6 +114,11 @@ private:
      /// Valid pointers for pointer analysis resolution connected by PAG edges (constraints)
      /// this set of candidate pointers can change during pointer resolution (e.g. adding new object nodes)
      OrderedNodeSet candidatePointers;
--
--    std::vector<llvm::Value*> epollCTLEventObjs;
--    std::vector<llvm::Value*> epollWAITEventObjs;
--
--
++
++    std::vector<llvm::Value*> epollCTLEventObjs;
++    std::vector<llvm::Value*> epollWAITEventObjs;
++
++
      NodeID nodeNumAfterPAGBuild; // initial node number after building PAG, excluding later added nodes, e.g., gepobj nodes
      ICFG* icfg; // ICFG
      CallSiteSet callSiteSet; /// all the callsites of a program
-@@ -156,14 +151,6 @@ public:
+@@ -151,6 +156,14 @@ public:
          return icfg;
      }
  
--    std::vector<llvm::Value*>& getEpollCTLEventObjs() {
--        return epollCTLEventObjs;
--    }
--
--    std::vector<llvm::Value*>& getEpollWAITEventObjs() {
--        return epollWAITEventObjs;
--    }
--
++    std::vector<llvm::Value*>& getEpollCTLEventObjs() {
++        return epollCTLEventObjs;
++    }
++
++    std::vector<llvm::Value*>& getEpollWAITEventObjs() {
++        return epollWAITEventObjs;
++    }
++
      /// Return valid pointers
      inline OrderedNodeSet& getAllValidPtrs()
      {
 diff --git a/include/SVF-FE/PAGBuilder.h b/include/SVF-FE/PAGBuilder.h
-index 078125c..18c6f02 100644
+index 18c6f02..078125c 100644
 --- a/include/SVF-FE/PAGBuilder.h
 +++ b/include/SVF-FE/PAGBuilder.h
-@@ -148,7 +148,6 @@ public:
+@@ -148,6 +148,7 @@ public:
      //@{
      virtual void handleExtCall(CallSite cs, const SVFFunction *F);
      const Type *getBaseTypeAndFlattenedFields(Value* v, std::vector<LocationSet> &fields);
--    void addEpollComplexCons(Value* D, Value* S);
++    void addEpollComplexCons(Value* D, Value* S);
      void addComplexConsForExt(Value *D, Value *S,u32_t sz = 0);
      //@}
  
 diff --git a/include/Util/ExtAPI.h b/include/Util/ExtAPI.h
-index cd9d1da..5675583 100644
+index 5675583..cd9d1da 100644
 --- a/include/Util/ExtAPI.h
 +++ b/include/Util/ExtAPI.h
-@@ -87,8 +87,6 @@ public:
+@@ -87,6 +87,8 @@ public:
          CPP_EFT_A1R,      //load arg1
          EFT_CXA_BEGIN_CATCH,  //__cxa_begin_catch
          CPP_EFT_DYNAMIC_CAST, // dynamic_cast
--        EFT_EPOLL_CTL_3,   // The event arg of EPOLL_CTL
--        EFT_EPOLL_WAIT_2,  // The event arg of EPOLL_WAIT
++        EFT_EPOLL_CTL_3,   // The event arg of EPOLL_CTL
++        EFT_EPOLL_WAIT_2,  // The event arg of EPOLL_WAIT
          EFT_OTHER         //not found in the list
      };
  private:
 diff --git a/lib/SVF-FE/PAGBuilder.cpp b/lib/SVF-FE/PAGBuilder.cpp
-index c778a2c..5cac02d 100644
+index 5cac02d..c778a2c 100644
 --- a/lib/SVF-FE/PAGBuilder.cpp
 +++ b/lib/SVF-FE/PAGBuilder.cpp
-@@ -121,12 +121,6 @@ PAG* PAGBuilder::build(SVFModule* svfModule)
+@@ -121,6 +121,12 @@ PAG* PAGBuilder::build(SVFModule* svfModule)
          }
      }
  
--    for (Value* eventCTLObj: pag->getEpollCTLEventObjs()) {
--        for (Value* eventWaitObj: pag->getEpollWAITEventObjs()) {
--            addEpollComplexCons(eventWaitObj, eventCTLObj);
--        }
--    }
--
++    for (Value* eventCTLObj: pag->getEpollCTLEventObjs()) {
++        for (Value* eventWaitObj: pag->getEpollWAITEventObjs()) {
++            addEpollComplexCons(eventWaitObj, eventCTLObj);
++        }
++    }
++
      sanityCheck();
  
      pag->initialiseCandidatePointers();
-@@ -636,12 +630,7 @@ void PAGBuilder::visitGetElementPtrInst(GetElementPtrInst &inst)
+@@ -630,7 +636,12 @@ void PAGBuilder::visitGetElementPtrInst(GetElementPtrInst &inst)
              vgepEdge->setStructType(false);
          }
  
--    }/* else {
--        NormalGepPE* normalGep = SVFUtil::dyn_cast<NormalGepPE>(gepEdge);
--        llvm::errs() << "Normal Gep: " << inst << " ls offset: " << normalGep->getOffset() << "\n";
--
--    }*/
--}
-+    }}
+-    }}
++    }/* else {
++        NormalGepPE* normalGep = SVFUtil::dyn_cast<NormalGepPE>(gepEdge);
++        llvm::errs() << "Normal Gep: " << inst << " ls offset: " << normalGep->getOffset() << "\n";
++
++    }*/
++}
  
  /*
   * Visit cast instructions
-@@ -961,52 +950,6 @@ const Type *PAGBuilder::getBaseTypeAndFlattenedFields(Value *V, std::vector<Loca
+@@ -950,6 +961,52 @@ const Type *PAGBuilder::getBaseTypeAndFlattenedFields(Value *V, std::vector<Loca
      return SymbolTableInfo::SymbolInfo()->getBaseTypeAndFlattenedFields(V, fields);
  }
  
--void PAGBuilder::addEpollComplexCons(Value* D, Value* S) {
--    assert(D && S);
--	llvm::Module *module = SVF::LLVMModuleSet::getLLVMModuleSet()->getMainLLVMModule();
--
--    NodeID vnD= getValueNode(D), vnS= getValueNode(S);
--    if(!vnD || !vnS)
--        return;
--
--    int sz = 2; // 2 fields
--
--    // Get the type
--    StructType* epollEventTy = nullptr;
--
--    for (auto* S: module->getIdentifiedStructTypes()) {
--        if (S->getName() == "struct.epoll_event") {
--            epollEventTy = S;
--            break;
--        }
--    }
--
--    Type* dtype, *stype;
--    dtype = stype = epollEventTy;
--
--    assert(epollEventTy && "epoll event type should be found");
--
--    if (SVFUtil::isa<Function>(S)) {
--        LocationSet ls(1);
--        NodeID dField = getGepValNode(D,ls,dtype,1);
--        NodeID funcValId = pag->getValueNode(S);
--        addStoreEdge(funcValId, dField);
--
--    } else {
--        //For each field (i), add (Ti = *S + i) and (*D + i = Ti).
--        for (u32_t index = 0; index < sz; index++) {
--            LocationSet ls1(index);
--            LocationSet ls2(index);
--
--            NodeID dField = getGepValNode(D,ls1,dtype,index);
--            NodeID sField = getGepValNode(S,ls2,stype,index);
--            NodeID dummy = pag->addDummyValNode();
--            addLoadEdge(sField,dummy);
--            addStoreEdge(dummy,dField);
--        }
--    }
--}
--
++void PAGBuilder::addEpollComplexCons(Value* D, Value* S) {
++    assert(D && S);
++	llvm::Module *module = SVF::LLVMModuleSet::getLLVMModuleSet()->getMainLLVMModule();
++
++    NodeID vnD= getValueNode(D), vnS= getValueNode(S);
++    if(!vnD || !vnS)
++        return;
++
++    int sz = 2; // 2 fields
++
++    // Get the type
++    StructType* epollEventTy = nullptr;
++
++    for (auto* S: module->getIdentifiedStructTypes()) {
++        if (S->getName() == "struct.epoll_event") {
++            epollEventTy = S;
++            break;
++        }
++    }
++
++    Type* dtype, *stype;
++    dtype = stype = epollEventTy;
++
++    assert(epollEventTy && "epoll event type should be found");
++
++    if (SVFUtil::isa<Function>(S)) {
++        LocationSet ls(1);
++        NodeID dField = getGepValNode(D,ls,dtype,1);
++        NodeID funcValId = pag->getValueNode(S);
++        addStoreEdge(funcValId, dField);
++
++    } else {
++        //For each field (i), add (Ti = *S + i) and (*D + i = Ti).
++        for (u32_t index = 0; index < sz; index++) {
++            LocationSet ls1(index);
++            LocationSet ls2(index);
++
++            NodeID dField = getGepValNode(D,ls1,dtype,index);
++            NodeID sField = getGepValNode(S,ls2,stype,index);
++            NodeID dummy = pag->addDummyValNode();
++            addLoadEdge(sField,dummy);
++            addStoreEdge(dummy,dField);
++        }
++    }
++}
++
  /*!
   * Add the load/store constraints and temp. nodes for the complex constraint
   * *D = *S (where D/S may point to structs).
-@@ -1392,26 +1335,6 @@ void PAGBuilder::handleExtCall(CallSite cs, const SVFFunction *callee)
+@@ -1335,6 +1392,26 @@ void PAGBuilder::handleExtCall(CallSite cs, const SVFFunction *callee)
                  break;
              }
              //default:
--            case ExtAPI::EFT_EPOLL_CTL_3: {
--                // Store the arg
--                Value* eventArg = cs.getArgument(3);
--                pag->getEpollCTLEventObjs().push_back(eventArg);
--                // Get the first argument of struct epoll_event { uint32_t events; epoll_data_t data};
--                // Check if we're dealing with a ptr in epoll_data_t
--                StructType* epollEventTy = SVFUtil::dyn_cast<StructType>(eventArg->getType()->getPointerElementType());
--                assert(epollEventTy && "Epoll event must be a struct");
--                StructType* epollDataTy = SVFUtil::dyn_cast<StructType>(epollEventTy->getElementType(1));
--                break;
--            }
--            case ExtAPI::EFT_EPOLL_WAIT_2: {
--                Value* eventArg = cs.getArgument(1);
--                pag->getEpollWAITEventObjs().push_back(eventArg);
--
--                StructType* epollEventTy = SVFUtil::dyn_cast<StructType>(eventArg->getType()->getPointerElementType());
--                assert(epollEventTy && "Epoll event must be a struct");
--                StructType* epollDataTy = SVFUtil::dyn_cast<StructType>(epollEventTy->getElementType(1));
--                break;
--            }
++            case ExtAPI::EFT_EPOLL_CTL_3: {
++                // Store the arg
++                Value* eventArg = cs.getArgument(3);
++                pag->getEpollCTLEventObjs().push_back(eventArg);
++                // Get the first argument of struct epoll_event { uint32_t events; epoll_data_t data};
++                // Check if we're dealing with a ptr in epoll_data_t
++                StructType* epollEventTy = SVFUtil::dyn_cast<StructType>(eventArg->getType()->getPointerElementType());
++                assert(epollEventTy && "Epoll event must be a struct");
++                StructType* epollDataTy = SVFUtil::dyn_cast<StructType>(epollEventTy->getElementType(1));
++                break;
++            }
++            case ExtAPI::EFT_EPOLL_WAIT_2: {
++                Value* eventArg = cs.getArgument(1);
++                pag->getEpollWAITEventObjs().push_back(eventArg);
++
++                StructType* epollEventTy = SVFUtil::dyn_cast<StructType>(eventArg->getType()->getPointerElementType());
++                assert(epollEventTy && "Epoll event must be a struct");
++                StructType* epollDataTy = SVFUtil::dyn_cast<StructType>(epollEventTy->getElementType(1));
++                break;
++            }
              case ExtAPI::EFT_OTHER:
              {
                  if(SVFUtil::isa<PointerType>(inst->getType()))
-@@ -1588,7 +1511,6 @@ void PAGBuilder::setCurrentBBAndValueForPAGEdge(PAGEdge* edge)
+@@ -1511,6 +1588,7 @@ void PAGBuilder::setCurrentBBAndValueForPAGEdge(PAGEdge* edge)
      {
          const Function* srcFun = edge->getSrcNode()->getFunction();
          const Function* dstFun = edge->getDstNode()->getFunction();
--/*
++/*
          if(srcFun!=nullptr && !SVFUtil::isa<RetPE>(edge) && !SVFUtil::isa<Function>(edge->getSrcNode()->getValue())) {
              assert(srcFun==curInst->getFunction() && "SrcNode of the PAGEdge not in the same function?");
          }
-@@ -1599,7 +1521,6 @@ void PAGBuilder::setCurrentBBAndValueForPAGEdge(PAGEdge* edge)
+@@ -1521,6 +1599,7 @@ void PAGBuilder::setCurrentBBAndValueForPAGEdge(PAGEdge* edge)
          /// We assume every GepValPN and its GepPE are unique across whole program
          if (!(SVFUtil::isa<GepPE>(edge) && SVFUtil::isa<GepValPN>(edge->getDstNode())))
              assert(curBB && "instruction does not have a basic block??");
--*/
++*/
  
          icfgNode = pag->getICFG()->getBlockICFGNode(curInst);
      }
 diff --git a/lib/Util/ExtAPI.cpp b/lib/Util/ExtAPI.cpp
-index f63cad1..640cf86 100644
+index 640cf86..f63cad1 100644
 --- a/lib/Util/ExtAPI.cpp
 +++ b/lib/Util/ExtAPI.cpp
-@@ -855,11 +855,8 @@ static const ei_pair ei_pairs[]=
+@@ -855,8 +855,11 @@ static const ei_pair ei_pairs[]=
      {"_ZStlsIcSt11char_traitsIcESaIcEERSt13basic_ostreamIT_T0_ES7_RKSbIS4_S5_T1_E", ExtAPI::CPP_EFT_A1R}, // c++98
      {"_ZStlsIcSt11char_traitsIcESaIcEERSt13basic_ostreamIT_T0_ES7_RKNSt7__cxx1112basic_stringIS4_S5_T1_EE", ExtAPI::CPP_EFT_A1R}, // c++11
  
--    {"__dynamic_cast", ExtAPI::CPP_EFT_DYNAMIC_CAST},
--    {"epoll_ctl", ExtAPI::EFT_EPOLL_CTL_3},
--    {"epoll_wait", ExtAPI::EFT_EPOLL_WAIT_2},
--
-     //This must be the last entry.
-+    {"__dynamic_cast", ExtAPI::CPP_EFT_DYNAMIC_CAST},
+-    //This must be the last entry.
+     {"__dynamic_cast", ExtAPI::CPP_EFT_DYNAMIC_CAST},
++    {"epoll_ctl", ExtAPI::EFT_EPOLL_CTL_3},
++    {"epoll_wait", ExtAPI::EFT_EPOLL_WAIT_2},
++
++    //This must be the last entry.
      {0, ExtAPI::EFT_NOOP}
  };
  
